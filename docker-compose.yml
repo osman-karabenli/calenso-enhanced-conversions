@@ -1,0 +1,32 @@
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: calenso-tailscale
+    hostname: calenso-n8n
+    ports:
+      - "5679:5678"
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: calenso-n8n
+    network_mode: "service:tailscale"
+    depends_on:
+      - tailscale
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+volumes:
+  n8n_data:
+  tailscale_state:
