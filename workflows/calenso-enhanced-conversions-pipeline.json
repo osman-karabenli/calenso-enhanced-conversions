@@ -1,0 +1,330 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calenso-customer-test",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0fc15a57-d39a-47e2-ad9d-b3e067de9904",
+      "name": "Receive Calenso Booking",
+      "webhookId": "88d91a37-50fb-44ef-b4f2-50e851f925db"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f57e20e7-d51b-4637-b660-a6993a5cd418",
+              "name": "event_type",
+              "value": "={{ $json.body.type }}",
+              "type": "string"
+            },
+            {
+              "id": "45030f92-0227-4f5a-bf7c-37781e01d76f",
+              "name": "event_created",
+              "value": "={{ $json.body.created }}",
+              "type": "string"
+            },
+            {
+              "id": "c5ba9e31-b3e5-4d48-a104-9c9a7b9ae05d",
+              "name": "appointment_uuid",
+              "value": "={{ $json.body.data.appointment.uuid }}",
+              "type": "string"
+            },
+            {
+              "id": "bd661055-3b1d-4952-bbb6-eb52acb6cdba",
+              "name": "appointment_start_utc",
+              "value": "={{ $json.body.data.appointment.start_utc }}",
+              "type": "string"
+            },
+            {
+              "id": "b4fa797d-c30b-4408-b56d-81f4e55c382f",
+              "name": "customer_uuid",
+              "value": "={{ $json.body.data.appointment.customer.uuid }}",
+              "type": "string"
+            },
+            {
+              "id": "a2b78c45-e066-48ea-a98c-4f95df1a7169",
+              "name": "email",
+              "value": "={{ $json.body.data.appointment.customer.email }}",
+              "type": "string"
+            },
+            {
+              "id": "73cbc1d0-7c55-40a0-a2af-52c5f27f2bec",
+              "name": "phone",
+              "value": "={{ $json.body.data.appointment.customer.phone }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        -64
+      ],
+      "id": "abb8ba6a-c929-49ba-8029-cd748231083c",
+      "name": "Minimize Conversion Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nconst missingFields = [];\nconst invalidFields = [];\n\nif (!data.event_type) {\n  missingFields.push('event_type');\n} else if (data.event_type !== 'appointment.booking.created') {\n  invalidFields.push('event_type');\n}\n\nif (!data.appointment_uuid) {\n  missingFields.push('appointment_uuid');\n}\n\nif (!data.appointment_start_utc) {\n  missingFields.push('appointment_start_utc');\n}\n\nif (!data.customer_uuid) {\n  missingFields.push('customer_uuid');\n}\n\nif (!data.email) {\n  missingFields.push('email');\n} else {\n  const email = String(data.email).trim();\n\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\n  if (!emailRegex.test(email)) {\n    invalidFields.push('email');\n  }\n}\n\nif (data.phone !== null && data.phone !== undefined) {\n  const phone = String(data.phone).trim();\n\n  if (phone === '') {\n    invalidFields.push('phone');\n  }\n}\n\nconst validationStatus =\n  missingFields.length === 0 && invalidFields.length === 0\n    ? 'OK'\n    : 'REVIEW_REQUIRED';\n\nreturn [\n  {\n    json: {\n      ...data,\n      validation_status: validationStatus,\n      missing_fields: missingFields,\n      invalid_fields: invalidFields,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -64
+      ],
+      "id": "9e06e325-04c7-4633-9713-35c94013bdc1",
+      "name": "Validate Conversion Data"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "19450849-6175-40f1-a22a-e98a153259d7",
+              "leftValue": "={{ $json.validation_status.trim() }}",
+              "rightValue": "OK",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        688,
+        -64
+      ],
+      "id": "9ab70a20-af67-47aa-a0f4-34e2d519fa3f",
+      "name": "Route Valid Conversion"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\n// EMAIL NORMALIZATION\nlet normalizedEmail = null;\n\nif (data.email) {\n  normalizedEmail = String(data.email)\n    .trim()\n    .toLowerCase();\n\n  // Google requires dots before @ to be removed for Gmail / Googlemail\n  const [localPart, domain] = normalizedEmail.split('@');\n\n  if (\n    localPart &&\n    domain &&\n    (domain === 'gmail.com' || domain === 'googlemail.com')\n  ) {\n    normalizedEmail = `${localPart.replace(/\\./g, '')}@${domain}`;\n  }\n}\n\n// PHONE NORMALIZATION\nlet normalizedPhone = null;\n\nif (data.phone) {\n  let phone = String(data.phone).trim();\n\n  // Keep the leading +, remove spaces, brackets, dashes, etc.\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  // Basic E.164 validation\n  if (/^\\+[1-9]\\d{10,14}$/.test(phone)) {\n    normalizedPhone = phone;\n  }\n}\n\nreturn [\n  {\n    json: {\n      ...data,\n      normalized_email: normalizedEmail,\n      normalized_phone: normalizedPhone,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -144
+      ],
+      "id": "83ad8ea7-7028-460e-8387-24ed47f7b9b6",
+      "name": "Normalize Customer Identifiers"
+    },
+    {
+      "parameters": {
+        "value": "={{ $json.normalized_email }}",
+        "dataPropertyName": "hashed_email"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        48
+      ],
+      "id": "a87da176-5313-4443-961d-8b9c742a8131",
+      "name": "Hash Email Identifier"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2826490a-a373-4cd5-994b-93fca590a482",
+              "name": "order_id",
+              "value": "={{ $json.appointment_uuid }}",
+              "type": "string"
+            },
+            {
+              "id": "d5bd4587-1750-45c6-989d-57baa6245e0e",
+              "name": "adjustment_type",
+              "value": "ENHANCEMENT",
+              "type": "string"
+            },
+            {
+              "id": "b0e20e0d-5cb0-4288-bf42-c83c01e32c18",
+              "name": "hashed_email",
+              "value": "={{ $json.hashed_email }}",
+              "type": "string"
+            },
+            {
+              "id": "f6994cb0-ae8d-4863-bac9-898ef46d54f5",
+              "name": "conversion_date_time",
+              "value": "={{ $json.event_created + '+00:00' }}",
+              "type": "string"
+            },
+            {
+              "id": "9956a0cc-38b4-40fa-9a86-d2a85e8441df",
+              "name": "conversion_action",
+              "value": "customers/4345692592/conversionActions/7681227340",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1408,
+        48
+      ],
+      "id": "ce660619-59e0-4c80-b5d7-3b40f895d9f8",
+      "name": "Prepare Google Ads Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://googleads.googleapis.com/v25/customers/4345692592:uploadConversionAdjustments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "={{ $env.GOOGLE_ADS_DEVELOPER_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"partialFailure\": true,\n  \"conversionAdjustments\": [\n    {\n      \"conversionAction\": \"{{ $json.conversion_action }}\",\n      \"adjustmentType\": \"ENHANCEMENT\",\n      \"orderId\": \"{{ $json.order_id }}\",\n      \"gclidDateTimePair\": {\n        \"conversionDateTime\": \"{{ $json.conversion_date_time }}\"\n      },\n      \"userIdentifiers\": [\n        {\n          \"userIdentifierSource\": \"FIRST_PARTY\",\n          \"hashedEmail\": \"{{ $json.hashed_email }}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1616,
+        48
+      ],
+      "id": "84f76894-bda6-43cb-a69c-411e50fab402",
+      "name": "Upload Enhanced Conversion",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "8LjIEewYN0hjsGZV",
+          "name": "Unnamed credential"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Calenso Booking": {
+      "main": [
+        [
+          {
+            "node": "Minimize Conversion Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Minimize Conversion Data": {
+      "main": [
+        [
+          {
+            "node": "Validate Conversion Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Conversion Data": {
+      "main": [
+        [
+          {
+            "node": "Route Valid Conversion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Valid Conversion": {
+      "main": [
+        [
+          {
+            "node": "Normalize Customer Identifiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Customer Identifiers": {
+      "main": [
+        [
+          {
+            "node": "Hash Email Identifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Email Identifier": {
+      "main": [
+        [
+          {
+            "node": "Prepare Google Ads Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Google Ads Payload": {
+      "main": [
+        [
+          {
+            "node": "Upload Enhanced Conversion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fcc39ec1-07fe-4dc6-a056-9c93471cd409",
+  "meta": {
+    "instanceId": "431acd04f096f619f18d4b3a25190e89cc3a3c635e172f712f205ec41bf26d96"
+  },
+  "nodeGroups": [],
+  "id": "o30bOWPlVZaTtFxW",
+  "tags": []
+}

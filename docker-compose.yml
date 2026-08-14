@@ -23,6 +23,13 @@ services:
     network_mode: "service:tailscale"
     depends_on:
       - tailscale
+    environment:
+      - N8N_HOST=calenso-n8n.tail713d2f.ts.net
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://calenso-n8n.tail713d2f.ts.net/
+      - N8N_EDITOR_BASE_URL=https://calenso-n8n.tail713d2f.ts.net/
+      - GOOGLE_ADS_DEVELOPER_TOKEN=${GOOGLE_ADS_DEVELOPER_TOKEN}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
