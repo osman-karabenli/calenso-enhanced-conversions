@@ -1,0 +1,175 @@
+{
+  "name": "Calenso Phone Enhancement Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        0
+      ],
+      "id": "9a3e88c2-2d57-4a99-b5d5-8991f6fb1001",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cases = [\n  { case_id: 'CASE 1', phone: '0176 12345678', expected_phone: 'VALID_E164', expected_country_prefix: '+49', expected_normalized_phone: '+4917612345678' },\n  { case_id: 'CASE 2', phone: '(0176) 123-45-678', expected_phone: 'VALID_E164', expected_country_prefix: '+49', expected_normalized_phone: '+4917612345678' },\n  { case_id: 'CASE 3', phone: '+49 176 12345678', expected_phone: 'VALID_E164', expected_country_prefix: '+49', expected_normalized_phone: '+4917612345678' },\n  { case_id: 'CASE 4', phone: '0049 176 12345678', expected_phone: 'VALID_E164', expected_country_prefix: '+49', expected_normalized_phone: '+4917612345678' },\n  { case_id: 'CASE 5', phone: '+43 660 1234567', expected_phone: 'VALID_E164', expected_country_prefix: '+43', expected_normalized_phone: '+436601234567' },\n  { case_id: 'CASE 6', phone: null, expected_phone: 'ABSENT', expected_country_prefix: null, expected_normalized_phone: null },\n  { case_id: 'CASE 7', phone: 'clearly invalid phone text', expected_phone: 'INVALID', expected_country_prefix: null, expected_normalized_phone: null },\n  { case_id: 'CASE 8', phone: '+49+17612345678', expected_phone: 'INVALID', expected_country_prefix: null, expected_normalized_phone: null },\n  { case_id: 'CASE 9', phone: '+1234567890123456', expected_phone: 'INVALID', expected_country_prefix: null, expected_normalized_phone: null },\n];\n\nreturn cases.map((testCase, index) => {\n  const source = {\n    body: {\n      data: {\n        appointment: {\n          uuid: 'synthetic-appointment-' + String(index + 1).padStart(2, '0'),\n          start: '2026-01-01T00:00:00Z',\n          customer: {\n            uuid: 'synthetic-customer-' + String(index + 1).padStart(2, '0'),\n            email: 'synthetic.customer.' + String(index + 1).padStart(2, '0') + '@example.test',\n            phone: testCase.phone,\n          },\n        },\n      },\n    },\n  };\n\n  return {\n    json: {\n      case_id: testCase.case_id,\n      expected_phone: testCase.expected_phone,\n      expected_country_prefix: testCase.expected_country_prefix,\n      expected_normalized_phone: testCase.expected_normalized_phone,\n      event_type: 'appointment.booking.created',\n      event_created: '2026-01-01T00:00:00',\n      appointment_uuid: source.body.data.appointment.uuid,\n      appointment_start_utc: source.body.data.appointment.start,\n      customer_uuid: source.body.data.appointment.customer.uuid,\n      email: source.body.data.appointment.customer.email,\n      phone: source.body.data.appointment.customer.phone,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ],
+      "id": "41f24019-106c-4c62-8429-b9fdfcb0199e",
+      "name": "Generate Sanitized Phone Test Cases"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizePhone(value) {\n  if (value === null || value === undefined) {\n    return null;\n  }\n\n  const rawPhone = String(value).trim();\n\n  if (rawPhone === '' || /[A-Za-z]/.test(rawPhone)) {\n    return null;\n  }\n\n  const compactPhone = rawPhone.replace(/[\\s\\-()./]/g, '');\n\n  if ((compactPhone.match(/\\+/g) || []).length > 1) {\n    return null;\n  }\n\n  let normalizedPhone = null;\n\n  if (compactPhone.startsWith('+')) {\n    normalizedPhone = compactPhone;\n  } else if (compactPhone.startsWith('00')) {\n    normalizedPhone = '+' + compactPhone.slice(2);\n  } else if (compactPhone.startsWith('0')) {\n    normalizedPhone = '+49' + compactPhone.slice(1);\n  } else {\n    return null;\n  }\n\n  if (/^\\+[1-9]\\d{7,14}$/.test(normalizedPhone)) {\n    return normalizedPhone;\n  }\n\n  return null;\n}\n\nreturn items.map((item) => {\n  const data = item.json;\n\n  // EMAIL NORMALIZATION\n  let normalizedEmail = null;\n\n  if (data.email) {\n    normalizedEmail = String(data.email)\n      .trim()\n      .toLowerCase();\n\n    // Google requires dots before @ to be removed for Gmail / Googlemail\n    const [localPart, domain] = normalizedEmail.split('@');\n\n    if (\n      localPart &&\n      domain &&\n      (domain === 'gmail.com' || domain === 'googlemail.com')\n    ) {\n      normalizedEmail = localPart.replace(/\\./g, '') + '@' + domain;\n    }\n  }\n\n  const normalizedPhone = normalizePhone(data.phone);\n\n  return {\n    json: {\n      ...data,\n      normalized_email: normalizedEmail,\n      normalized_phone: normalizedPhone,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "2d00673b-57f5-4c5a-950d-bc0a57b20fd3",
+      "name": "Normalize Customer Identifiers"
+    },
+    {
+      "parameters": {
+        "value": "={{ $json.normalized_email }}",
+        "dataPropertyName": "hashed_email"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "53b3d5db-d814-4c4c-8864-f0ce1b9d43f7",
+      "name": "Hash Email Identifier"
+    },
+    {
+      "parameters": {
+        "jsCode": "function sha256(input) {\n  function rightRotate(value, amount) {\n    return (value >>> amount) | (value << (32 - amount));\n  }\n\n  const bytes = [];\n  for (let i = 0; i < input.length; i += 1) {\n    const code = input.charCodeAt(i);\n    if (code > 0xff) {\n      throw new Error('Phone identifier must contain ASCII characters only');\n    }\n    bytes.push(code);\n  }\n\n  const bitLength = bytes.length * 8;\n  bytes.push(0x80);\n  while ((bytes.length % 64) !== 56) {\n    bytes.push(0);\n  }\n\n  for (let shift = 56; shift >= 0; shift -= 8) {\n    bytes.push((bitLength / Math.pow(2, shift)) & 0xff);\n  }\n\n  const h = [\n    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,\n    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,\n  ];\n\n  const k = [\n    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,\n    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,\n    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,\n    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,\n    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,\n    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,\n    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,\n    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,\n    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,\n    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,\n    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,\n    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,\n    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,\n    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,\n    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,\n    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,\n  ];\n\n  for (let chunk = 0; chunk < bytes.length; chunk += 64) {\n    const w = new Array(64);\n\n    for (let i = 0; i < 16; i += 1) {\n      const j = chunk + i * 4;\n      w[i] = (\n        (bytes[j] << 24) |\n        (bytes[j + 1] << 16) |\n        (bytes[j + 2] << 8) |\n        bytes[j + 3]\n      ) >>> 0;\n    }\n\n    for (let i = 16; i < 64; i += 1) {\n      const s0 = rightRotate(w[i - 15], 7) ^ rightRotate(w[i - 15], 18) ^ (w[i - 15] >>> 3);\n      const s1 = rightRotate(w[i - 2], 17) ^ rightRotate(w[i - 2], 19) ^ (w[i - 2] >>> 10);\n      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;\n    }\n\n    let [a, b, c, d, e, f, g, hh] = h;\n\n    for (let i = 0; i < 64; i += 1) {\n      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);\n      const ch = (e & f) ^ ((~e) & g);\n      const temp1 = (hh + s1 + ch + k[i] + w[i]) >>> 0;\n      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (s0 + maj) >>> 0;\n\n      hh = g;\n      g = f;\n      f = e;\n      e = (d + temp1) >>> 0;\n      d = c;\n      c = b;\n      b = a;\n      a = (temp1 + temp2) >>> 0;\n    }\n\n    h[0] = (h[0] + a) >>> 0;\n    h[1] = (h[1] + b) >>> 0;\n    h[2] = (h[2] + c) >>> 0;\n    h[3] = (h[3] + d) >>> 0;\n    h[4] = (h[4] + e) >>> 0;\n    h[5] = (h[5] + f) >>> 0;\n    h[6] = (h[6] + g) >>> 0;\n    h[7] = (h[7] + hh) >>> 0;\n  }\n\n  return h.map((value) => value.toString(16).padStart(8, '0')).join('');\n}\n\nreturn items.map((item) => {\n  const json = { ...item.json };\n  const normalizedPhone = json.normalized_phone;\n\n  if (normalizedPhone && /^\\+[1-9]\\d{7,14}$/.test(String(normalizedPhone))) {\n    json.hashed_phone = sha256(String(normalizedPhone));\n  } else {\n    json.hashed_phone = null;\n  }\n\n  delete json.phone;\n  delete json.normalized_phone;\n\n  return { json };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "c652c9a2-9cd6-41aa-9ac6-e1c1122db9d6",
+      "name": "Hash Phone Identifier"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map((item) => {\n  const json = { ...item.json };\n  const userIdentifiers = [\n    {\n      userIdentifierSource: 'FIRST_PARTY',\n      hashedEmail: json.hashed_email,\n    },\n  ];\n\n  if (json.hashed_phone) {\n    userIdentifiers.push({\n      userIdentifierSource: 'FIRST_PARTY',\n      hashedPhoneNumber: json.hashed_phone,\n    });\n  }\n\n  return {\n    json: {\n      case_id: json.case_id,\n      expected_phone: json.expected_phone,\n      expected_country_prefix: json.expected_country_prefix,\n      expected_normalized_phone: json.expected_normalized_phone,\n      order_id: json.appointment_uuid,\n      adjustment_type: 'ENHANCEMENT',\n      sanitized_payload: {\n        conversionAction: 'customers/TEST_CUSTOMER/conversionActions/TEST_ACTION',\n        adjustmentType: 'ENHANCEMENT',\n        orderId: json.appointment_uuid,\n        userIdentifiers,\n      },\n      checks: {\n        raw_phone_present: Object.prototype.hasOwnProperty.call(json, 'phone'),\n        normalized_phone_present: Object.prototype.hasOwnProperty.call(json, 'normalized_phone'),\n        hashed_phone_present: Boolean(json.hashed_phone),\n        hashed_email_present: Boolean(json.hashed_email),\n        hashed_phone_is_hex_sha256: !json.hashed_phone || /^[a-f0-9]{64}$/.test(json.hashed_phone),\n        email_and_phone_are_separate: userIdentifiers.length < 2 || (\n          Object.prototype.hasOwnProperty.call(userIdentifiers[0], 'hashedEmail') &&\n          !Object.prototype.hasOwnProperty.call(userIdentifiers[0], 'hashedPhoneNumber') &&\n          Object.prototype.hasOwnProperty.call(userIdentifiers[1], 'hashedPhoneNumber') &&\n          !Object.prototype.hasOwnProperty.call(userIdentifiers[1], 'hashedEmail')\n        ),\n      },\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "5a4b8ffd-b32c-43bb-a496-d983510caf2b",
+      "name": "Build Sanitized Test Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "function sha256(input) {\n  function rightRotate(value, amount) {\n    return (value >>> amount) | (value << (32 - amount));\n  }\n\n  const bytes = [];\n  for (let i = 0; i < input.length; i += 1) {\n    const code = input.charCodeAt(i);\n    if (code > 0xff) {\n      throw new Error('Phone identifier must contain ASCII characters only');\n    }\n    bytes.push(code);\n  }\n\n  const bitLength = bytes.length * 8;\n  bytes.push(0x80);\n  while ((bytes.length % 64) !== 56) {\n    bytes.push(0);\n  }\n\n  for (let shift = 56; shift >= 0; shift -= 8) {\n    bytes.push((bitLength / Math.pow(2, shift)) & 0xff);\n  }\n\n  const h = [\n    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,\n    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,\n  ];\n\n  const k = [\n    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,\n    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,\n    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,\n    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,\n    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,\n    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,\n    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,\n    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,\n    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,\n    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,\n    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,\n    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,\n    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,\n    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,\n    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,\n    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,\n  ];\n\n  for (let chunk = 0; chunk < bytes.length; chunk += 64) {\n    const w = new Array(64);\n\n    for (let i = 0; i < 16; i += 1) {\n      const j = chunk + i * 4;\n      w[i] = (\n        (bytes[j] << 24) |\n        (bytes[j + 1] << 16) |\n        (bytes[j + 2] << 8) |\n        bytes[j + 3]\n      ) >>> 0;\n    }\n\n    for (let i = 16; i < 64; i += 1) {\n      const s0 = rightRotate(w[i - 15], 7) ^ rightRotate(w[i - 15], 18) ^ (w[i - 15] >>> 3);\n      const s1 = rightRotate(w[i - 2], 17) ^ rightRotate(w[i - 2], 19) ^ (w[i - 2] >>> 10);\n      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;\n    }\n\n    let [a, b, c, d, e, f, g, hh] = h;\n\n    for (let i = 0; i < 64; i += 1) {\n      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);\n      const ch = (e & f) ^ ((~e) & g);\n      const temp1 = (hh + s1 + ch + k[i] + w[i]) >>> 0;\n      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (s0 + maj) >>> 0;\n\n      hh = g;\n      g = f;\n      f = e;\n      e = (d + temp1) >>> 0;\n      d = c;\n      c = b;\n      b = a;\n      a = (temp1 + temp2) >>> 0;\n    }\n\n    h[0] = (h[0] + a) >>> 0;\n    h[1] = (h[1] + b) >>> 0;\n    h[2] = (h[2] + c) >>> 0;\n    h[3] = (h[3] + d) >>> 0;\n    h[4] = (h[4] + e) >>> 0;\n    h[5] = (h[5] + f) >>> 0;\n    h[6] = (h[6] + g) >>> 0;\n    h[7] = (h[7] + hh) >>> 0;\n  }\n\n  return h.map((value) => value.toString(16).padStart(8, '0')).join('');\n}\n\nconst failures = [];\n\nif (items.length !== 9) {\n  throw new Error('Phone enhancement test expected exactly 9 cases but received ' + items.length);\n}\n\nfor (const item of items) {\n  const data = item.json;\n  const identifiers = data.sanitized_payload.userIdentifiers;\n  const phoneIdentifier = identifiers.find((identifier) => Object.prototype.hasOwnProperty.call(identifier, 'hashedPhoneNumber'));\n  const emailIdentifier = identifiers.find((identifier) => Object.prototype.hasOwnProperty.call(identifier, 'hashedEmail'));\n  const expectPhonePresent = data.expected_phone === 'VALID_E164';\n  const checks = data.checks;\n  const expectedPhoneHash = data.expected_normalized_phone ? sha256(data.expected_normalized_phone) : null;\n\n  const assertions = [\n    ['email identifier present', Boolean(emailIdentifier) && checks.hashed_email_present],\n    ['raw phone absent', checks.raw_phone_present === false],\n    ['normalized phone absent', checks.normalized_phone_present === false],\n    ['phone identifier expected presence', Boolean(phoneIdentifier) === expectPhonePresent],\n    ['hashed phone presence flag', checks.hashed_phone_present === expectPhonePresent],\n    ['hashed phone hex sha256', checks.hashed_phone_is_hex_sha256 === true],\n    ['email and phone identifiers separate', checks.email_and_phone_are_separate === true],\n    ['phone hash matches expected normalized value', expectPhonePresent ? phoneIdentifier?.hashedPhoneNumber === expectedPhoneHash : !phoneIdentifier],\n  ];\n\n  for (const [assertion, passed] of assertions) {\n    if (!passed) {\n      failures.push({ case_id: data.case_id, assertion });\n    }\n  }\n}\n\nif (failures.length > 0) {\n  throw new Error('Phone enhancement test failed: ' + JSON.stringify(failures));\n}\n\nreturn [\n  {\n    json: {\n      total_cases: items.length,\n      passed: items.length,\n      failed: 0,\n      status: 'PASS',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "a8c95e7a-82f6-418d-bb8e-b10544f0e5ed",
+      "name": "Assert Test Results"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Sanitized Phone Test Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sanitized Phone Test Cases": {
+      "main": [
+        [
+          {
+            "node": "Normalize Customer Identifiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Customer Identifiers": {
+      "main": [
+        [
+          {
+            "node": "Hash Email Identifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Email Identifier": {
+      "main": [
+        [
+          {
+            "node": "Hash Phone Identifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Phone Identifier": {
+      "main": [
+        [
+          {
+            "node": "Build Sanitized Test Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sanitized Test Payload": {
+      "main": [
+        [
+          {
+            "node": "Assert Test Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "active": false,
+  "versionId": "00000000-0000-4000-8000-000000000000",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "id": "calensoPhoneEnhancementTest"
+}

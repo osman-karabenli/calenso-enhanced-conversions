@@ -120,6 +120,8 @@ The production security milestone was runtime-verified with sanitized evidence:
 * no Google Ads partial failure was present
 * manual/admin booking did not create an n8n execution
 * Caddy recreate preserved strict authentication as the startup default
+* phone identifier enhancement accepted by Google Ads with no partial failure
+* isolated 9-case n8n regression workflow passed
 
 No production payloads, secrets, identifiers, hashes, emails, phone numbers, customer IDs, conversion action IDs, or appointment UUID values are documented in this repository.
 
@@ -140,6 +142,7 @@ Validate Conversion Data
 Route Valid Conversion
 Normalize Customer Identifiers
 Hash Email Identifier
+Hash Phone Identifier
 Prepare Google Ads Payload
 Upload Enhanced Conversion
 ```
@@ -171,7 +174,25 @@ Email values are:
 3. normalized for Gmail / Googlemail dot handling where applicable
 4. SHA-256 hashed before transmission to Google Ads
 
-Phone normalization and validation exist, but phone hashing/transmission is not enabled yet. Phone-number enhancement work is intentionally a later milestone.
+Phone values are treated as optional first-party identifiers. Recent production observations show Calenso currently sends phone values in E.164-style `+...` format. The workflow still keeps defensive normalization and validation for other safe structural forms:
+
+```text
++CC...  -> preserve international country code
+00CC... -> +CC...
+0...    -> +49...
+```
+
+Missing, blank, ambiguous, or invalid phone values produce no phone identifier and fall back to the existing email-only enhancement path.
+
+When a valid phone exists, it is normalized to E.164, SHA-256 hashed, and sent to Google Ads as a separate `hashedPhoneNumber` user identifier. Raw and normalized phone values are removed before payload preparation.
+
+The reusable isolated test workflow is:
+
+```text
+workflows/calenso-phone-enhancement-test.json
+```
+
+It uses only synthetic data and validates 9 deterministic cases inside n8n without webhooks, credentials, HTTP requests, or Google Ads calls.
 
 ## Google Ads Integration
 
@@ -183,7 +204,10 @@ orderId: Calenso appointment UUID
 conversionAction: calenso1
 userIdentifierSource: FIRST_PARTY
 hashedEmail: SHA-256 normalized email
+hashedPhoneNumber: SHA-256 normalized phone, only when valid
 ```
+
+Email and phone identifiers are sent as separate `UserIdentifier` objects. Empty or null phone identifiers are not sent.
 
 Authentication uses n8n-managed Google OAuth 2.0 credentials. The Google Ads Developer Token is injected through an environment variable and is not stored in the repository.
 
@@ -264,11 +288,12 @@ Completed:
 * Header stripping before n8n
 * Source-level filtering for customer-side bookings
 * Email-based Google Ads Enhanced Conversion adjustment
+* Optional hashed phone identifier enhancement
 * Safe transition rollback config
+* Isolated n8n phone regression test workflow
 
 Planned:
 
-* phone identifier hashing and upload
 * duplicate/idempotency protection
 * structured error workflow
 * retry strategy
