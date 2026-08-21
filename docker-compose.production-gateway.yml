@@ -1,0 +1,13 @@
+services:
+  calenso-caddy-gateway:
+    image: caddy:2.11.4-alpine
+    container_name: calenso-caddy-gateway
+    network_mode: "service:tailscale"
+    depends_on:
+      - tailscale
+    environment:
+      - CALENSO_WEBHOOK_SECRET=${CALENSO_WEBHOOK_SECRET}
+    volumes:
+      - ./infra/caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/Caddyfile.production-transition:/etc/caddy/Caddyfile.transition:ro
+    restart: unless-stopped

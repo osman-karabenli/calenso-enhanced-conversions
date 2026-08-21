@@ -1,0 +1,28 @@
+:8080 {
+	@authorizedProductionWebhook {
+		method POST
+		path /webhook/calenso-customer-test
+		header X-Calenso-Webhook-Secret {$CALENSO_WEBHOOK_SECRET}
+	}
+
+	@unauthorizedProductionWebhook {
+		method POST
+		path /webhook/calenso-customer-test
+	}
+
+	handle @authorizedProductionWebhook {
+		reverse_proxy 127.0.0.1:5678 {
+			header_up -X-Calenso-Webhook-Secret
+		}
+	}
+
+	handle @unauthorizedProductionWebhook {
+		respond 403
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:5678 {
+			header_up -X-Calenso-Webhook-Secret
+		}
+	}
+}

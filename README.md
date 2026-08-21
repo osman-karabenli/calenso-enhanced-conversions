@@ -1,137 +1,154 @@
 # Calenso Enhanced Conversions Pipeline
 
-A privacy-conscious automation pipeline that connects Calenso appointment bookings with Google Ads Enhanced Conversions using n8n, Docker and Tailscale Funnel.
+A production-style automation pipeline that connects Calenso customer-side bookings to Google Ads Enhanced Conversions through n8n, Docker, Tailscale Funnel, and a strict Caddy authentication gateway.
 
-The project demonstrates a production-style integration architecture with webhook processing, data minimization, validation, normalization, SHA-256 hashing and server-side Google Ads API communication.
-
-## Project Goal
-
-The goal of this project is to build a secure, reusable and maintainable automation pipeline between Calenso and Google Ads.
-
-The pipeline is designed to:
-
-* Receive new Calenso appointment events through HTTPS webhooks
-* Extract only the data required for conversion processing
-* Validate incoming booking data
-* Normalize customer identifiers
-* Hash customer email identifiers using SHA-256
-* Associate browser-side and server-side conversions using the same appointment UUID
-* Upload Enhanced Conversion data to the Google Ads API
-* Keep credentials and secrets outside the Git repository
-* Provide a reproducible Docker-based environment
+The project demonstrates webhook hardening, data minimization, validation, normalization, SHA-256 hashing, and server-side Google Ads `ENHANCEMENT` conversion adjustments.
 
 ## Architecture
 
-The integration consists of two related conversion paths.
-
 ```text
-                           Calenso Booking
-                                |
-                 +--------------+--------------+
-                 |                             |
-                 | Browser                     | Webhook
-                 v                             v
-          Google Tag Manager            Tailscale Funnel
-                 |                             |
-                 v                             v
-      Google Ads Conversion                  n8n
-          transaction_id                     |
-                 |                            v
-                 |                     Data Minimization
-                 |                            |
-                 |                            v
-                 |                        Validation
-                 |                            |
-                 |                            v
-                 |                      Normalization
-                 |                            |
-                 |                            v
-                 |                     SHA-256 Hashing
-                 |                            |
-                 |                            v
-                 |                    Google Ads Payload
-                 |                            |
-                 |                            v
-                 +------------------> Google Ads API
-                           matching by
-                        appointment UUID
+Customer-side Calenso booking
+  |
+  +--> Google Tag Manager
+  |      |
+  |      +--> Google Ads website conversion
+  |           transaction_id = Calenso appointment UUID
+  |
+  +--> Calenso webhook
+         |
+         +--> Tailscale Funnel :443
+                |
+                +--> Caddy strict authentication gateway :8080
+                       |
+                       +--> n8n production workflow
+                              |
+                              +--> Google Ads API
+                                   ConversionAdjustment
+                                   adjustmentType = ENHANCEMENT
+                                   orderId = Calenso appointment UUID
 ```
 
-The Calenso appointment UUID is used as:
+The browser-side Google Ads conversion and the n8n server-side enhancement are matched by the same Calenso appointment UUID:
 
 ```text
 GTM transaction_id = n8n orderId
 ```
 
-This allows the browser-side conversion and server-side Enhanced Conversion data to reference the same appointment.
+## Security Boundary
 
-## Verified End-to-End Flow
+Public webhook traffic is protected before it reaches n8n.
 
-The following production flow has been successfully tested:
+Calenso sends a custom header:
 
 ```text
-Calenso
-  |
-  | appointment.booking.created
-  v
-Production Webhook
-  |
-  v
-Minimize Conversion Data
-  |
-  v
-Validate Conversion Data
-  |
-  v
-Route Valid Conversion
-  |
-  v
-Normalize Customer Identifiers
-  |
-  v
-Hash Email Identifier
-  |
-  v
-Prepare Google Ads Payload
-  |
-  v
-Upload Enhanced Conversion
-  |
-  v
-Google Ads API
+X-Calenso-Webhook-Secret
 ```
 
-A real test booking successfully reached the Google Ads API using an `ENHANCEMENT` conversion adjustment.
+Caddy is the authentication boundary:
 
-The appointment UUID was also verified to be identical between:
+* validates `X-Calenso-Webhook-Secret` on the production webhook path
+* rejects missing or wrong secrets with `403`
+* strips `X-Calenso-Webhook-Secret` before proxying to n8n
+* keeps other n8n routes proxied without requiring Calenso webhook auth
 
-* Calenso booking
-* GTM `appointment_uuid`
-* Google Ads browser-side transaction ID
-* n8n `orderId`
+The secret is stored outside Git in the ignored local `.env` file and injected into the Caddy container through `CALENSO_WEBHOOK_SECRET`.
 
-## Current Status
+Secrets must not be stored in:
 
-### Milestone 1 - Webhook Infrastructure ✅
+* workflow JSON exports
+* Caddyfiles
+* README or documentation
+* Git history
+* n8n execution input data
 
-Implemented:
+## Source-Level Business Filtering
 
-* Dockerized n8n environment
-* Persistent n8n storage
-* Persistent Tailscale state
-* Tailscale Funnel HTTPS endpoint
-* Shared network namespace between n8n and Tailscale
-* Public production webhook endpoint
-* Calenso webhook integration
+The Calenso production webhook subscribes only to:
 
-### Milestone 2 - Data Minimization ✅
+```text
+appointment.booking.created
+```
 
-Implemented:
+Manual/admin bookings are intentionally excluded at the Calenso source level and do not create n8n executions.
 
-* Processing of `appointment.booking.created`
-* Extraction of required booking fields only
-* Removal of unnecessary Calenso payload data before downstream processing
-* Separation of customer identifiers from the complete webhook payload
+## Deployment Behavior
+
+The production gateway is defined in:
+
+```text
+docker-compose.production-gateway.yml
+```
+
+Strict authentication is the default startup config:
+
+```text
+infra/caddy/Caddyfile.production
+-> /etc/caddy/Caddyfile
+```
+
+The transition config remains available only for deliberate rollback:
+
+```text
+infra/caddy/Caddyfile.production-transition
+-> /etc/caddy/Caddyfile.transition
+```
+
+The gateway runs in the shared Tailscale network namespace and does not publish additional host ports.
+
+## Safe Rollback
+
+While Calenso sends the production secret, the normal rollback is to reload the transition Caddy config:
+
+```bash
+docker exec calenso-caddy-gateway caddy reload --config /etc/caddy/Caddyfile.transition --adapter caddyfile
+```
+
+Do not use direct `:443 -> n8n :5678` as the normal rollback while Calenso sends the production header. Bypassing Caddy could allow `X-Calenso-Webhook-Secret` to appear in n8n execution data.
+
+## Verified Acceptance Tests
+
+The production security milestone was runtime-verified with sanitized evidence:
+
+* missing webhook secret -> `403`
+* wrong webhook secret -> `403`
+* rejected requests did not create n8n executions
+* legitimate Calenso request with the production secret was accepted
+* `X-Calenso-Webhook-Secret` was absent from n8n execution data
+* Calenso appointment UUID was present internally
+* n8n `orderId` matched the appointment UUID
+* Google Ads `ENHANCEMENT` adjustment was accepted
+* no Google Ads partial failure was present
+* manual/admin booking did not create an n8n execution
+* Caddy recreate preserved strict authentication as the startup default
+
+No production payloads, secrets, identifiers, hashes, emails, phone numbers, customer IDs, conversion action IDs, or appointment UUID values are documented in this repository.
+
+## n8n Workflow
+
+Production workflow export:
+
+```text
+workflows/calenso-enhanced-conversions-pipeline.json
+```
+
+Current production node path:
+
+```text
+Receive Calenso Booking
+Minimize Conversion Data
+Validate Conversion Data
+Route Valid Conversion
+Normalize Customer Identifiers
+Hash Email Identifier
+Prepare Google Ads Payload
+Upload Enhanced Conversion
+```
+
+## Data Minimization
+
+Calenso webhook payloads contain more information than required for conversion processing.
+
+The workflow minimizes incoming data before validation, normalization, hashing, and Google Ads upload. Unnecessary customer, staff, service, business, and internal Calenso metadata is not intentionally forwarded to Google Ads.
 
 Current minimized fields include:
 
@@ -145,213 +162,64 @@ email
 phone
 ```
 
-### Milestone 3 - Validation & Normalization ✅
-
-Implemented:
-
-* Required-field validation
-* Event-type validation
-* Email-format validation
-* Validation status routing
-* Email trimming and lowercasing
-* Gmail / Googlemail dot normalization
-* Phone normalization
-* Basic E.164 phone validation
-* `REVIEW_REQUIRED` routing for invalid input
-
-### Milestone 4 - Google Ads Integration ✅
-
-Implemented:
-
-* SHA-256 email hashing
-* Google Ads OAuth 2.0 authentication
-* Google Ads Developer Token via environment variable
-* Google Ads Conversion Action integration
-* Enhanced Conversion payload generation
-* `ENHANCEMENT` conversion adjustment upload
-* Appointment UUID used as `orderId`
-* Conversion timestamp based on the Calenso booking event timestamp
-* Successful Google Ads API response
-* Verified GTM transaction ID / n8n order ID equality
-
-### Milestone 5 - Logging & Error Handling 🚧
-
-Planned:
-
-* Invalid-event logging
-* API failure handling
-* Retry strategy
-* Structured error output
-* Review queue
-* Failure notifications
-* Execution monitoring
-
-### Milestone 6 - Production Hardening 🚧
-
-Planned:
-
-* 24/7 server or VPS deployment
-* Improved secret management
-* Duplicate-processing protection
-* Idempotency strategy
-* Monitoring and health checks
-* Backup strategy
-* Workflow versioning
-* Security review
-* Data-protection review
-
-## n8n Workflow
-
-The current workflow follows a business-process pipeline pattern:
-
-```text
-Input
-  |
-  v
-Minimize
-  |
-  v
-Validate
-  |
-  v
-Decision
-  |
-  v
-Normalize
-  |
-  v
-Hash
-  |
-  v
-Prepare
-  |
-  v
-External Action
-```
-
-Current nodes:
-
-```text
-Receive Calenso Booking
-Minimize Conversion Data
-Validate Conversion Data
-Route Valid Conversion
-Normalize Customer Identifiers
-Hash Email Identifier
-Prepare Google Ads Payload
-Upload Enhanced Conversion
-```
-
-This design keeps responsibilities separated and makes the workflow easier to test, maintain and extend.
-
-## Data Minimization
-
-Calenso webhook payloads contain significantly more information than is required for conversion processing.
-
-The workflow therefore reduces the incoming payload before additional processing.
-
-Only fields required for validation, identification and conversion processing are retained.
-
-Unnecessary customer, employee, service, business and internal platform metadata is not intentionally forwarded to Google Ads.
-
 ## Customer Identifier Processing
-
-### Email
 
 Email values are:
 
-1. Trimmed
-2. Converted to lowercase
-3. Gmail / Googlemail dots normalized where applicable
-4. SHA-256 hashed before being included in the Google Ads request
+1. trimmed
+2. lowercased
+3. normalized for Gmail / Googlemail dot handling where applicable
+4. SHA-256 hashed before transmission to Google Ads
 
-Example processing flow:
-
-```text
-Customer email
-      |
-      v
-Normalization
-      |
-      v
-SHA-256
-      |
-      v
-Google Ads API
-```
-
-### Phone
-
-Phone normalization and basic E.164 validation are implemented.
-
-Phone hashing and transmission to Google Ads are not yet enabled in the current workflow version.
-
-This will be added after the email-based integration has been fully stabilized.
+Phone normalization and validation exist, but phone hashing/transmission is not enabled yet. Phone-number enhancement work is intentionally a later milestone.
 
 ## Google Ads Integration
 
-The server-side workflow sends Enhanced Conversion adjustments through the Google Ads API.
-
-The request uses:
+The server-side workflow sends Google Ads Enhanced Conversion adjustments using:
 
 ```text
 adjustmentType: ENHANCEMENT
 orderId: Calenso appointment UUID
-conversionAction: configured Google Ads conversion action
-conversionDateTime: Calenso booking event timestamp
+conversionAction: calenso1
 userIdentifierSource: FIRST_PARTY
 hashedEmail: SHA-256 normalized email
 ```
 
-Authentication uses OAuth 2.0.
+Authentication uses n8n-managed Google OAuth 2.0 credentials. The Google Ads Developer Token is injected through an environment variable and is not stored in the repository.
 
-The Google Ads Developer Token is injected into the n8n container through an environment variable and is not stored in the Git repository.
+## Environment Variables
 
-## Browser-Side Matching
+Create a local `.env` file based on `.env.example`.
 
-Google Tag Manager receives the Calenso booking completion event from the website.
-
-The Calenso appointment UUID is extracted into the GTM data layer and used as the Google Ads transaction ID.
-
-Example concept:
-
-```text
-Calenso appointment UUID
-        |
-        +--------------------+
-        |                    |
-        v                    v
-GTM transaction_id       n8n orderId
-        |                    |
-        +---------=----------+
+```env
+TAILSCALE_AUTHKEY=your_tailscale_auth_key_here
+GOOGLE_ADS_DEVELOPER_TOKEN=your_google_ads_developer_token_here
+CALENSO_WEBHOOK_SECRET=your_production_webhook_secret_here
 ```
 
-This equality was verified during an end-to-end test.
+Never commit the real `.env` file.
 
-## Security & Privacy
+## Docker Usage
 
-Security and privacy are design requirements of this project.
+Start the base environment:
 
-Current measures include:
+```bash
+docker compose up -d
+```
 
-* `.env` is excluded from Git
-* `.env.example` contains placeholders only
-* API secrets are not hard-coded in workflow files
-* Google Ads Developer Token is provided through an environment variable
-* OAuth credentials are managed by n8n credentials
-* Customer identifiers are minimized before downstream processing
-* Email identifiers are SHA-256 hashed before transmission
-* No real customer execution data should be committed to the repository
-* Incoming public webhook traffic uses HTTPS through Tailscale Funnel
-* n8n and Tailscale state use separate persistent Docker volumes
+Start or recreate only the production Caddy gateway:
 
-> **Important:** This repository must never contain real customer data, authentication keys, OAuth secrets, API tokens or production credentials.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.production-gateway.yml up -d --no-deps calenso-caddy-gateway
+```
 
-### Environment Variable Access
+Force-recreate only the production Caddy gateway after config changes:
 
-The current n8n environment allows workflow access to environment variables because the Google Ads Developer Token is referenced from the workflow.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.production-gateway.yml up -d --no-deps --force-recreate calenso-caddy-gateway
+```
 
-This is acceptable for the current development architecture but should be reviewed as part of production hardening and secret-management improvements.
+Do not recreate `calenso-n8n` or `calenso-tailscale` during gateway-only changes.
 
 ## Project Structure
 
@@ -359,144 +227,58 @@ This is acceptable for the current development architecture but should be review
 calenso-enhanced-conversions/
 |
 |-- docker-compose.yml
-|-- .env                 # Local secrets - NOT committed
-|-- .env.example         # Environment variable template
+|-- docker-compose.production-gateway.yml
+|-- .env.example
 |-- .gitignore
 |-- README.md
+|
+|-- infra/
+|   `-- caddy/
+|       |-- Caddyfile.production
+|       `-- Caddyfile.production-transition
 |
 `-- workflows/
     `-- calenso-enhanced-conversions-pipeline.json
 ```
-
-The workflow export will be updated as development milestones are completed.
-
-## Environment Variables
-
-Create a local `.env` file based on `.env.example`.
-
-Example:
-
-```env
-TAILSCALE_AUTHKEY=your_tailscale_auth_key_here
-GOOGLE_ADS_DEVELOPER_TOKEN=your_google_ads_developer_token_here
-```
-
-Never commit the real `.env` file.
-
-## Running the Environment
-
-Start the Docker environment:
-
-```bash
-docker compose up -d
-```
-
-Check running containers:
-
-```bash
-docker compose ps
-```
-
-View logs:
-
-```bash
-docker compose logs
-```
-
-Stop the environment:
-
-```bash
-docker compose down
-```
-
-Persistent volumes preserve n8n and Tailscale state across normal container restarts.
-
-## Webhook Modes
-
-n8n provides separate webhook URLs for testing and production.
-
-Development testing:
-
-```text
-/webhook-test/...
-```
-
-Published workflow:
-
-```text
-/webhook/...
-```
-
-The Calenso production integration must use the `/webhook/` endpoint.
-
-The workflow does not require the n8n editor or browser tab to remain open.
-
-However, the Docker host must currently remain online because n8n and Tailscale are running locally.
-
-A future production deployment will move the service to an always-on environment.
 
 ## Tech Stack
 
 * Docker
 * Docker Compose
 * n8n
-* Tailscale
+* Caddy
 * Tailscale Funnel
 * Calenso Webhooks
 * Google Tag Manager
-* Google Ads
 * Google Ads API
 * OAuth 2.0
 * SHA-256
-* Git
-* GitHub
-
-## Engineering Principles
-
-This project follows several principles commonly used in professional automation and integration projects:
-
-* Reproducible infrastructure
-* Separation of configuration and secrets
-* Data minimization
-* Input validation
-* Normalized data structures
-* Explicit decision logic
-* Modular workflow design
-* Environment-based configuration
-* Version control
-* Incremental development through milestones
-* End-to-end testing
-* Privacy-conscious system design
 
 ## Roadmap
 
-```text
-Milestone 1  Webhook Infrastructure           ✅
-Milestone 2  Data Minimization                ✅
-Milestone 3  Validation & Normalization       ✅
-Milestone 4  Google Ads Integration           ✅
-Milestone 5  Logging & Error Handling         🚧
-Milestone 6  Production Hardening             🚧
-```
+Completed:
 
-Future improvements may include:
+* Dockerized n8n and Tailscale environment
+* Calenso customer-side booking webhook ingestion
+* Caddy strict webhook authentication gateway
+* Header stripping before n8n
+* Source-level filtering for customer-side bookings
+* Email-based Google Ads Enhanced Conversion adjustment
+* Safe transition rollback config
 
-* Hashed phone identifier support
-* Structured error workflow
-* Retry handling
-* Conversion deduplication
-* Logging database
-* Monitoring
-* 24/7 deployment
-* Automated workflow backups
-* Additional documentation
+Planned:
+
+* phone identifier hashing and upload
+* duplicate/idempotency protection
+* structured error workflow
+* retry strategy
+* monitoring and alerting
+* 24/7 deployment hardening
 
 ## Disclaimer
 
 This repository is an educational and portfolio project demonstrating automation architecture and integration patterns.
 
-Successful API submission does not by itself guarantee that Google Ads will ultimately match every Enhanced Conversion to an existing browser-side conversion.
+Successful API submission does not guarantee that Google Ads will ultimately match every Enhanced Conversion to an existing browser-side conversion.
 
-Production use requires appropriate security, privacy, GDPR/data-protection and platform-specific review.
-
-No real patient or customer data should be committed to this repository.
+Production use requires appropriate security, privacy, GDPR/data-protection, and platform-specific review.

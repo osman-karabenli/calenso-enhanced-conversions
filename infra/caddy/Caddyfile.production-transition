@@ -1,0 +1,18 @@
+:8080 {
+	@productionWebhook {
+		method POST
+		path /webhook/calenso-customer-test
+	}
+
+	handle @productionWebhook {
+		reverse_proxy 127.0.0.1:5678 {
+			header_up -X-Calenso-Webhook-Secret
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:5678 {
+			header_up -X-Calenso-Webhook-Secret
+		}
+	}
+}
