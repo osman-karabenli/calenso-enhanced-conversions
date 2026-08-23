@@ -217,6 +217,10 @@ Create a local `.env` file based on `.env.example`.
 
 ```env
 TAILSCALE_HOSTNAME=calenso-n8n
+N8N_HOST=
+N8N_PROTOCOL=https
+WEBHOOK_URL=
+N8N_EDITOR_BASE_URL=
 TAILSCALE_AUTHKEY=your_tailscale_auth_key_here
 GOOGLE_ADS_DEVELOPER_TOKEN=your_google_ads_developer_token_here
 N8N_ENCRYPTION_KEY=
@@ -227,7 +231,7 @@ Never commit the real `.env` file.
 
 ## Docker Usage
 
-The production n8n image is pinned for reproducibility. Production deployments must provide a persistent `N8N_ENCRYPTION_KEY` and must never commit the real value. `TAILSCALE_HOSTNAME` allows staged deployments such as a parallel AWS device without changing Compose files. Tailscale state is persisted in a named volume and `TS_AUTH_ONCE=true` avoids unnecessary re-authentication after the device has joined the tailnet.
+The production n8n image is pinned for reproducibility. Production deployments must provide a persistent `N8N_ENCRYPTION_KEY` and must never commit the real value. n8n public URL settings (`N8N_HOST`, `WEBHOOK_URL`, and `N8N_EDITOR_BASE_URL`) are environment-specific and must be supplied through `.env` for non-default deployments. `TAILSCALE_HOSTNAME` allows staged deployments such as a parallel AWS device without changing Compose files. Tailscale state is persisted in a named volume and `TS_AUTH_ONCE=true` avoids unnecessary re-authentication after the device has joined the tailnet.
 
 Start the base environment:
 

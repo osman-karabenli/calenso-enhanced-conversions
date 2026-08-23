@@ -25,10 +25,10 @@ services:
     depends_on:
       - tailscale
     environment:
-      - N8N_HOST=calenso-n8n.tail713d2f.ts.net
-      - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://calenso-n8n.tail713d2f.ts.net/
-      - N8N_EDITOR_BASE_URL=https://calenso-n8n.tail713d2f.ts.net/
+      - N8N_HOST=${N8N_HOST:-calenso-n8n.tail713d2f.ts.net}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://calenso-n8n.tail713d2f.ts.net/}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-https://calenso-n8n.tail713d2f.ts.net/}
       - GOOGLE_ADS_DEVELOPER_TOKEN=${GOOGLE_ADS_DEVELOPER_TOKEN}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
