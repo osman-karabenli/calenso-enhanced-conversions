@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository documents a production-grade Google Ads Enhanced Conversions pipeline for Calenso bookings, implemented with n8n and deployed as a Docker Compose stack.
+This repository documents a Google Ads Enhanced Conversions pipeline draft for Calenso bookings, implemented with n8n and Docker Compose. The browser-selected UUID matching work on this branch is local-only and has not been deployed or activated.
 
 The system receives customer-side Calenso booking events, validates and normalizes the required conversion data, hashes first-party customer identifiers, and uploads a Google Ads `ConversionAdjustment` with `adjustmentType = ENHANCEMENT`.
 
@@ -37,7 +37,7 @@ n8n orderId       = Calenso appointment UUID
 
 This avoids creating a second independent conversion and instead enhances the original website conversion.
 
-## Production Infrastructure
+## Target Production Infrastructure
 
 - AWS EC2 Ubuntu 24.04
 - Docker Compose
@@ -94,7 +94,9 @@ The pipeline uses one Google Ads conversion action.
 
 Google OAuth 2.0 credentials are managed in n8n and are not exported into Git.
 
-## Production Acceptance Tests
+## Previously Documented Production Evidence
+
+The following section is historical project documentation and was not re-run or changed during this local-only fix. It is not evidence that this branch is deployed.
 
 The AWS production deployment was acceptance tested with sanitized evidence only:
 
@@ -141,6 +143,126 @@ That branch is intentionally not merged into production `main` yet because `main
 
 Production does not send raw email or raw phone values to Google Ads.
 
+## Multi-Appointment Matching Draft
+
+Branch `fix/browser-selected-appointment-matching` contains a draft fix for multi-appointment Calenso bookings.
+
+### Assessment
+
+The inspected Calenso webhook payload has no reliable booking group identifier shared by all appointments in the same customer booking operation. Fields such as `parent_id`, `booking_link_id`, and `child_appointments` are empty in the verified sample. Because of that, grouping by customer id, nearby timestamps, or the first webhook would be heuristic and can merge two separate bookings from the same customer.
+
+The safer draft solution keeps the existing Google Ads order id contract:
+
+```text
+GTM transaction_id = browser-selected Calenso appointment UUID
+n8n orderId       = same browser-selected Calenso appointment UUID
+```
+
+For a multi-date booking, Webador already chooses `bookingData[0].uuid` as the browser conversion UUID. The server now waits for an authenticated Calenso webhook with that same UUID before sending the single `ENHANCEMENT`. Other appointment webhooks from the same booking are not enhanced unless the browser also selected their UUID, which it should not do for this conversion.
+
+### Matching Design
+
+- Browser notification endpoint: `/webhook/calenso-browser-selected-appointment`
+- Authenticated Calenso endpoint remains: `/webhook/calenso-customer-test`
+- Browser notification contains only the selected appointment UUID and event metadata.
+- Browser notification does not contain the Calenso webhook secret, Google Ads data, customer UUID, email, phone, or hashes.
+- Browser notification alone never sends a Google Ads request.
+- Google Ads upload happens only after a matching authenticated Calenso webhook has supplied validated customer conversion data.
+- Duplicate browser notifications and duplicate Calenso webhooks are deduplicated by an atomic state-store claim for the selected `orderId`.
+- Reverse arrival order is supported: either side can arrive first.
+- Pending browser selections and pending authenticated Calenso webhooks expire after 30 minutes.
+- In-flight upload claims carry a unique `delivery_claim_id` and expire after 2 minutes so an unknown/timeout result can be retried in a bounded way.
+- Accepted/sent order ids are retained for 30 days, separately from the short pending TTL, so late duplicate webhooks do not become eligible again after 31 minutes.
+- Pending buckets are capped at 500 records and accepted order ids at 5000 records. Accepted order ids are not silently removed on capacity pressure; storage pressure is reported as an error. Dead-letter records have their own retention and capacity limits.
+- HTTP 429/5xx, connection failures such as `ECONNRESET`, timeout/unknown results, empty 200 responses, and 200 responses without the expected `orderId` are retried by a scheduled workflow path without waiting for a new webhook. Only explicit validation 4xx responses and `partialFailureError` are permanent failures.
+- A scheduled retry also recovers persisted `IN_FLIGHT` records whose delivery claim is missing or expired. An active, unexpired claim is left untouched, and `maxUploadAttempts` still bounds recovery.
+- HTTP `200` responses containing `partialFailureError` are treated as a non-accepted Google Ads result and are not marked as sent.
+- Empty or unexpected HTTP `200` responses are not accepted; the response must contain a result for the expected `orderId`.
+
+The Caddy production gateway must continue validating `X-Calenso-Webhook-Secret` on `/webhook/calenso-customer-test` and stripping that header upstream. The browser endpoint must remain public, but it is not an authority to upload to Google.
+
+The generated n8n draft does not use workflow static data for matching. It calls the local `calenso-state-store` sidecar, which persists state in the `calenso_state` Docker volume and serializes state transitions in a single Node process. This avoids direct writes to n8n internal database tables while giving webhook matching, claim creation, retry attempt counting, and upload result updates one persistent decision point. The sidecar creates a state file when absent, writes an atomic replacement and a `.bak` backup, recovers only from a schema-valid backup, and refuses to start when an existing state file is unreadable or no valid backup exists. Request bodies are limited to 64 KiB.
+
+The browser webhook uses n8n `Respond to Webhook` after the state-store HTTP call, so the browser receives HTTP 200 only after the UUID decision has been persisted. Its public response body is reduced to `{ action }` only. The node's normal output still carries the full state-store decision into `Flatten State Store Decision`, so a browser request arriving after Calenso can continue through the upload path. The listener treats a response as success only when its JSON body contains an accepted state-store action (`WAIT`, `SEND_ENHANCEMENT`, or `SKIP`); an empty or unknown 2xx response is retried.
+
+The browser endpoint is intentionally secret-free and accepts only the appointment UUID. The Caddy draft allows CORS only from `https://www.physiotherapie-rieckmann.de`, limits request bodies to 64 KiB, rejects other origins, and includes a documented plugin-enabled Caddy rate-limit example of 30 requests/minute per remote host. The stock Caddy image does not enable that plugin, so the rate-limit policy must be selected and validated before public exposure. The Calenso webhook secret validation and header stripping are unchanged.
+
+### Draft Files
+
+- `lib/appointment-matcher.js`: deterministic matching and retry state machine used by local tests and by the state-store service.
+- `services/state-store.js`: small HTTP sidecar used by n8n for atomic matching, claiming, retry polling, and upload result recording.
+- `tests/appointment-matcher.test.js`: synthetic no-Google test coverage for matcher, retry, empty 200, connection errors, 429/5xx, missing orderId, partial failure, validation 4xx, timeout, late duplicate, and restart-state scenarios.
+- `tests/browser-listener.test.js`: isolated browser listener tests for real `eventName`, array/object `bookingData`, origin/source rejection, invalid UUIDs, and limited retry.
+- `tests/state-store.test.js`: starts the local state-store service, checks concurrent claim behavior, verifies file-backed restart persistence, backup recovery, fail-closed corrupt state handling, and the request body limit.
+- `tests/workflow-export.test.js`: parses the generated inactive workflow and verifies state-store topology, browser `Respond to Webhook`, retry polling, context-branch Merge wiring, and finalize routing structurally.
+- `webador/browser-selected-appointment-listener.js`: integrated Webador-side draft listener that preserves Calenso `eventName` passthrough, attaches the selected UUID to the real `appointment_booking_step_success`, and sends only the selected UUID to the browser endpoint.
+- `scripts/build-browser-matched-workflow.js`: generates the n8n draft workflow export from the current production workflow plus state-store claim/finalize/retry paths.
+- `workflows/calenso-enhanced-conversions-pipeline.browser-matched.json`: inactive n8n draft workflow export.
+
+### Webador Setup Draft
+
+Before publishing, replace `https://YOUR_PUBLIC_N8N_HOST/webhook/calenso-browser-selected-appointment` in `webador/browser-selected-appointment-listener.js` with a confirmed public browser notification hostname. Do not assume `calenso-n8n-aws.tail713d2f.ts.net` is ready or authorized for this new endpoint.
+
+Merge the snippet with the existing Webador message listener instead of installing a second competing listener. The draft expects Calenso iframe messages from `https://widget.calenso.com`, verifies `event.source` against the Calenso iframe, preserves `event.data.eventName` passthrough to `dataLayer`, captures the selected UUID on `APPOINTMENT_BOOKING_DONE`, and attaches that UUID to the later real `appointment_booking_step_success` event. DONE itself must not create an extra `appointment_booking_step_success` conversion event. Keep the GTM Google Ads trigger condition that requires the UUID regex; that condition prevents UUID-less conversions and must stay in place.
+
+### Local Verification
+
+Run these local tests without calling Google Ads:
+
+```bash
+node tests/appointment-matcher.test.js
+node tests/browser-listener.test.js
+node tests/state-store.test.js
+node scripts/build-browser-matched-workflow.js
+node tests/workflow-export.test.js
+node -e "JSON.parse(require('fs').readFileSync('workflows/calenso-enhanced-conversions-pipeline.browser-matched.json','utf8')); console.log('workflow json parse PASS')"
+```
+
+Covered synthetic cases:
+
+- Single appointment sends exactly one enhancement after browser UUID and authenticated webhook match.
+- Multiple appointments in one booking send only the browser-selected UUID.
+- Same customer making two separate bookings sends one enhancement per browser-selected UUID.
+- Reverse arrival order and duplicate messages are deduplicated.
+- Invalid or unmatched browser notifications do not send and expire.
+- Listener accepts the real `eventName` message with array or object `bookingData`.
+- Wrong origin/source messages are rejected; invalid UUID DONE messages do not notify the server or create UUID-bearing conversion events.
+- Repeated DONE while notify is in flight does not send a second browser notification; a repeated real `appointment_booking_step_success` for the same UUID is suppressed.
+- UUID-less Google Ads error responses are tied back to the preserved `order_id` and `delivery_claim_id`.
+- Google Ads HTTP errors, timeout/unknown results, empty `200` responses, and `partialFailureError` do not mark the order id as sent.
+- Scheduled retry can claim the next due failed enhancement without a new browser or Calenso webhook.
+- Scheduled retry recovers an expired or missing `IN_FLIGHT` delivery claim, while an active unexpired claim remains protected.
+- Restart-state persistence is covered both by JSON serialize/restore of the matcher state and by a real state-store process restart using a file-backed state file.
+- Stale upload responses from an older `delivery_claim_id` do not clear a newer active claim.
+- Generated workflow topology is parsed and checked for state-store claim/finalize/retry connections; this is more than JSON parse or string matching.
+
+### Deployment Notes
+
+This branch does not deploy to AWS, does not modify the live n8n workflow, does not publish GTM/Webador changes, and does not push to GitHub.
+
+Before live deployment, confirm the running AWS workflow export matches the repo version or manually diff the live workflow. Do not assume `main` and AWS are identical.
+
+Missing live configuration that must be supplied explicitly:
+
+- Public browser notification endpoint hostname.
+- Current live Webador listener code.
+- Current live GTM trigger condition/export.
+- Current live n8n workflow export if it differs from this repository.
+- CORS and gateway routing for the public browser endpoint, including a deployed rate-limit-capable gateway policy.
+- Live n8n execution with the imported draft workflow and the local `calenso-state-store` service.
+- Confirmation in n8n `2.27.4` that the browser `Respond to Webhook` node returns the state-store decision and that the two-input upload-context Merge preserves `__upload_context` on HTTP error and timeout paths.
+- Google Ads API behavior should be verified with test credentials or an isolated mock before any production credential is used. API acceptance is not the same thing as a reported/attributed conversion.
+
+### Rollback
+
+If the draft is imported for testing and needs to be reverted:
+
+1. Deactivate the browser-matched draft workflow in n8n.
+2. Reactivate the previously verified production workflow.
+3. Remove or disable the Webador browser notification snippet.
+4. Keep the GTM UUID regex trigger condition in place.
+5. Keep Caddy strict secret validation and header stripping in place.
+
 ## Repository Structure
 
 ```text
@@ -150,12 +272,31 @@ calenso-enhanced-conversions/
 |-- .env.example
 |-- README.md
 |
+|-- lib/
+|   `-- appointment-matcher.js
+|
+|-- services/
+|   `-- state-store.js
+|
+|-- scripts/
+|   `-- build-browser-matched-workflow.js
+|
+|-- tests/
+|   |-- appointment-matcher.test.js
+|   |-- browser-listener.test.js
+|   |-- state-store.test.js
+|   `-- workflow-export.test.js
+|
+|-- webador/
+|   `-- browser-selected-appointment-listener.js
+|
 |-- infra/
 |   `-- caddy/
 |       |-- Caddyfile.production
 |       `-- Caddyfile.production-transition
 |
 `-- workflows/
+    |-- calenso-enhanced-conversions-pipeline.browser-matched.json
     |-- calenso-enhanced-conversions-pipeline.json
     `-- calenso-phone-enhancement-test.json
 ```
@@ -164,9 +305,14 @@ Important files:
 
 - `docker-compose.yml`: base n8n and Tailscale services
 - `docker-compose.production-gateway.yml`: production Caddy gateway service
+- `services/state-store.js`: file-backed local state-store sidecar for the browser-matched draft
+- `lib/appointment-matcher.js`: deterministic matching, claiming, retry, and upload-result state machine
+- `webador/browser-selected-appointment-listener.js`: Webador listener draft that preserves eventName passthrough
+- `scripts/build-browser-matched-workflow.js`: generator for the inactive browser-matched n8n workflow export
 - `infra/caddy/Caddyfile.production`: strict webhook authentication gateway
 - `infra/caddy/Caddyfile.production-transition`: explicit rollback gateway config
 - `workflows/calenso-enhanced-conversions-pipeline.json`: production n8n workflow export
+- `workflows/calenso-enhanced-conversions-pipeline.browser-matched.json`: inactive state-store-backed draft workflow
 - `workflows/calenso-phone-enhancement-test.json`: isolated sanitized n8n regression workflow
 
 ## Environment Configuration
@@ -207,7 +353,6 @@ The Compose configuration is designed for staged deployments by allowing hostnam
 
 ## Status
 
-**Production deployed / acceptance tested.**
+**Local draft only; not deployed or live-activated.**
 
 This repository is a portfolio-grade automation project demonstrating secure webhook ingestion, privacy-aware data processing, and Google Ads Enhanced Conversions integration.
-

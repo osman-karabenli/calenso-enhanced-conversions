@@ -1,4 +1,55 @@
 :8080 {
+	@browserPreflight {
+		method OPTIONS
+		path /webhook/calenso-browser-selected-appointment
+		header Origin https://www.physiotherapie-rieckmann.de
+		header Access-Control-Request-Method POST
+	}
+
+	@browserOrigin {
+		method POST
+		path /webhook/calenso-browser-selected-appointment
+		header Origin https://www.physiotherapie-rieckmann.de
+	}
+
+	@browserWrongOrigin {
+		method POST OPTIONS
+		path /webhook/calenso-browser-selected-appointment
+	}
+
+	handle @browserPreflight {
+		header {
+			Access-Control-Allow-Origin "https://www.physiotherapie-rieckmann.de"
+			Access-Control-Allow-Methods "POST, OPTIONS"
+			Access-Control-Allow-Headers "Content-Type"
+			Access-Control-Max-Age "600"
+			Vary "Origin"
+		}
+		respond 204
+	}
+
+	handle @browserOrigin {
+		request_body {
+			max_size 64KB
+		}
+		header {
+			Access-Control-Allow-Origin "https://www.physiotherapie-rieckmann.de"
+			Access-Control-Allow-Methods "POST, OPTIONS"
+			Access-Control-Allow-Headers "Content-Type"
+			Vary "Origin"
+		}
+		# Rate limiting belongs here in the deployed gateway build. The stock Caddy
+		# image in this draft has no rate-limit plugin; enable a reviewed plugin or
+		# upstream gateway policy before exposing this endpoint publicly.
+		# Example for a plugin-enabled Caddy build:
+		# rate_limit @browserOrigin { zone browser_uuid { key {http.request.remote.host} events 30 window 1m } }
+		reverse_proxy 127.0.0.1:5678
+	}
+
+	handle @browserWrongOrigin {
+		respond 403
+	}
+
 	@authorizedProductionWebhook {
 		method POST
 		path /webhook/calenso-customer-test
