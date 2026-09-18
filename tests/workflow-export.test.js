@@ -50,12 +50,12 @@ assertConnected("Claim Next Retryable Enhancement", "Flatten State Store Decisio
 assertConnected("Flatten State Store Decision", "Route Matched Enhancement");
 assertConnected("Prepare Google Ads Payload", "Attach Upload Context");
 assertConnected("Attach Upload Context", "Upload Enhanced Conversion");
-assertConnected("Attach Upload Context", "Capture Upload Context");
-assertConnected("Upload Enhanced Conversion", "Merge Upload Response With Context");
-assertConnected("Capture Upload Context", "Merge Upload Response With Context");
-assertConnected("Merge Upload Response With Context", "Build Upload Result Record");
+assert.equal(workflow.nodes.some((node) => node.name === "Merge Upload Response With Context"), false);
+assert.equal(workflow.nodes.some((node) => node.name === "Capture Upload Context"), false);
+assertConnected("Upload Enhanced Conversion", "Build Upload Result Record");
 assertConnected("Build Upload Result Record", "Record Google Ads Upload Result");
 assert.ok(isReachable("Receive Browser Selected Appointment", "Upload Enhanced Conversion"), "browser trigger must reach Google upload");
+assert.ok(isReachable("Receive Browser Selected Appointment", "Record Google Ads Upload Result"), "browser trigger must reach upload-result");
 
 const prepareAssignments = byName("Prepare Google Ads Payload").parameters.assignments.assignments;
 assert.ok(prepareAssignments.some((item) => item.name === "order_id" && item.value.includes("appointment_uuid")));
@@ -63,11 +63,10 @@ assert.ok(prepareAssignments.some((item) => item.name === "delivery_claim_id"));
 assert.ok(prepareAssignments.some((item) => item.name === "delivery_attempt"));
 
 const buildResultCode = byName("Build Upload Result Record").parameters.jsCode;
-assert.doesNotMatch(buildResultCode, /\$\('Attach Upload Context'\)\.item/);
-assert.match(buildResultCode, /\$json\.__upload_context/);
+assert.match(buildResultCode, /\$\('Attach Upload Context'\)\.first\(\)\.json\.upload_context/);
 assert.match(buildResultCode, /appointmentUuid: context\.appointmentUuid/);
 assert.match(buildResultCode, /deliveryClaimId: context\.deliveryClaimId/);
-assert.match(buildResultCode, /googleAdsResult: \$json\.google_ads_result \|\| \$json/);
+assert.match(buildResultCode, /googleAdsResult: \$json/);
 
 const upload = byName("Upload Enhanced Conversion");
 assert.equal(upload.onError, "continueRegularOutput");

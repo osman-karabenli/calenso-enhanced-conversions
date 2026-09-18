@@ -194,7 +194,7 @@ The browser endpoint is intentionally secret-free and accepts only the appointme
 - `tests/appointment-matcher.test.js`: synthetic no-Google test coverage for matcher, retry, empty 200, connection errors, 429/5xx, missing orderId, partial failure, validation 4xx, timeout, late duplicate, and restart-state scenarios.
 - `tests/browser-listener.test.js`: isolated browser listener tests for real `eventName`, array/object `bookingData`, origin/source rejection, invalid UUIDs, and limited retry.
 - `tests/state-store.test.js`: starts the local state-store service, checks concurrent claim behavior, verifies file-backed restart persistence, backup recovery, fail-closed corrupt state handling, and the request body limit.
-- `tests/workflow-export.test.js`: parses the generated inactive workflow and verifies state-store topology, browser `Respond to Webhook`, retry polling, context-branch Merge wiring, and finalize routing structurally.
+- `tests/workflow-export.test.js`: parses the generated inactive workflow and verifies state-store topology, browser `Respond to Webhook`, retry polling, direct upload-result wiring, and finalize routing structurally.
 - `webador/browser-selected-appointment-listener.js`: integrated Webador-side draft listener that preserves Calenso `eventName` passthrough, attaches the selected UUID to the real `appointment_booking_step_success`, and sends only the selected UUID to the browser endpoint.
 - `scripts/build-browser-matched-workflow.js`: generates the n8n draft workflow export from the current production workflow plus state-store claim/finalize/retry paths.
 - `workflows/calenso-enhanced-conversions-pipeline.browser-matched.json`: inactive n8n draft workflow export.
@@ -250,7 +250,7 @@ Missing live configuration that must be supplied explicitly:
 - Current live n8n workflow export if it differs from this repository.
 - CORS and gateway routing for the public browser endpoint, including a deployed rate-limit-capable gateway policy.
 - Live n8n execution with the imported draft workflow and the local `calenso-state-store` service.
-- Confirmation in n8n `2.27.4` that the browser `Respond to Webhook` node returns the state-store decision and that the two-input upload-context Merge preserves `__upload_context` on HTTP error and timeout paths.
+- Confirmation in n8n `2.27.4` that `Build Upload Result Record` can read `$('Attach Upload Context').first().json.upload_context` on both successful and `continueRegularOutput` Google Ads responses.
 - Google Ads API behavior should be verified with test credentials or an isolated mock before any production credential is used. API acceptance is not the same thing as a reported/attributed conversion.
 
 ### Rollback

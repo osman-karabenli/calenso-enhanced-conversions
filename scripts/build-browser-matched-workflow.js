@@ -93,22 +93,14 @@ return items.map((item) => ({
 `;
 
 const finalizeUploadCode = `
-const context = $json.__upload_context;
+const context = $('Attach Upload Context').first().json.upload_context;
 return [{
   json: {
     appointmentUuid: context.appointmentUuid,
     deliveryClaimId: context.deliveryClaimId,
-    googleAdsResult: $json.google_ads_result || $json,
+    googleAdsResult: $json,
   },
 }];
-`;
-
-const captureUploadContextCode = `
-return items.map((item) => ({
-  json: {
-    __upload_context: item.json.upload_context,
-  },
-}));
 `;
 
 const nodes = [
@@ -231,7 +223,6 @@ const nodes = [
     options: {},
   }, { typeVersion: 3.4 }),
   node("Attach Upload Context", "n8n-nodes-base.code", [2656, 128], { jsCode: uploadContextCode }),
-  node("Capture Upload Context", "n8n-nodes-base.code", [2896, 300], { jsCode: captureUploadContextCode }),
   node("Upload Enhanced Conversion", "n8n-nodes-base.httpRequest", [2896, 128], {
     method: "POST",
     url: "https://googleads.googleapis.com/v25/customers/4345692592:uploadConversionAdjustments",
@@ -255,13 +246,8 @@ const nodes = [
       },
     },
   }),
-  node("Merge Upload Response With Context", "n8n-nodes-base.merge", [3136, 128], {
-    mode: "combine",
-    combineBy: "position",
-    options: {},
-  }, { typeVersion: 3.2 }),
-  node("Build Upload Result Record", "n8n-nodes-base.code", [3376, 128], { jsCode: finalizeUploadCode }),
-  httpStateNode("Record Google Ads Upload Result", [3616, 128], "/upload-result", "={{ $json }}"),
+  node("Build Upload Result Record", "n8n-nodes-base.code", [3136, 128], { jsCode: finalizeUploadCode }),
+  httpStateNode("Record Google Ads Upload Result", [3376, 128], "/upload-result", "={{ $json }}"),
 ];
 
 const connect = (nodeName, targets) => ({ [nodeName]: { main: [targets.map((target) => ({ node: target, type: "main", index: 0 }))] } });
@@ -292,19 +278,8 @@ const workflow = {
     ...connect("Hash Email Identifier", ["Hash Phone Identifier"]),
     ...connect("Hash Phone Identifier", ["Prepare Google Ads Payload"]),
     ...connect("Prepare Google Ads Payload", ["Attach Upload Context"]),
-    "Attach Upload Context": {
-      main: [[
-        { node: "Upload Enhanced Conversion", type: "main", index: 0 },
-        { node: "Capture Upload Context", type: "main", index: 0 },
-      ]],
-    },
-    "Upload Enhanced Conversion": {
-      main: [[{ node: "Merge Upload Response With Context", type: "main", index: 0 }]],
-    },
-    "Capture Upload Context": {
-      main: [[{ node: "Merge Upload Response With Context", type: "main", index: 1 }]],
-    },
-    ...connect("Merge Upload Response With Context", ["Build Upload Result Record"]),
+    ...connect("Attach Upload Context", ["Upload Enhanced Conversion"]),
+    ...connect("Upload Enhanced Conversion", ["Build Upload Result Record"]),
     ...connect("Build Upload Result Record", ["Record Google Ads Upload Result"]),
   },
   active: false,

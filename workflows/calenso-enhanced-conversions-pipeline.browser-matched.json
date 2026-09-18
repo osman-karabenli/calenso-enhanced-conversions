@@ -431,19 +431,6 @@
     },
     {
       "parameters": {
-        "jsCode": "\nreturn items.map((item) => ({\n  json: {\n    __upload_context: item.json.upload_context,\n  },\n}));\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2896,
-        300
-      ],
-      "id": "5db4a8d7-0000-4000-8000-da19f6adab62",
-      "name": "Capture Upload Context"
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "https://googleads.googleapis.com/v25/customers/4345692592:uploadConversionAdjustments",
         "authentication": "genericCredentialType",
@@ -482,27 +469,12 @@
     },
     {
       "parameters": {
-        "mode": "combine",
-        "combineBy": "position",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
-      "position": [
-        3136,
-        128
-      ],
-      "id": "d46425a3-0000-4000-8000-1522c9e56b82",
-      "name": "Merge Upload Response With Context"
-    },
-    {
-      "parameters": {
-        "jsCode": "\nconst context = $json.__upload_context;\nreturn [{\n  json: {\n    appointmentUuid: context.appointmentUuid,\n    deliveryClaimId: context.deliveryClaimId,\n    googleAdsResult: $json.google_ads_result || $json,\n  },\n}];\n"
+        "jsCode": "\nconst context = $('Attach Upload Context').first().json.upload_context;\nreturn [{\n  json: {\n    appointmentUuid: context.appointmentUuid,\n    deliveryClaimId: context.deliveryClaimId,\n    googleAdsResult: $json,\n  },\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3376,
+        3136,
         128
       ],
       "id": "f3f0c891-0000-4000-8000-c4dd8ad73d10",
@@ -522,7 +494,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        3616,
+        3376,
         128
       ],
       "id": "debb7030-0000-4000-8000-f7e0a25d9343",
@@ -725,38 +697,11 @@
             "node": "Upload Enhanced Conversion",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Capture Upload Context",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
     },
     "Upload Enhanced Conversion": {
-      "main": [
-        [
-          {
-            "node": "Merge Upload Response With Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Capture Upload Context": {
-      "main": [
-        [
-          {
-            "node": "Merge Upload Response With Context",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Merge Upload Response With Context": {
       "main": [
         [
           {
