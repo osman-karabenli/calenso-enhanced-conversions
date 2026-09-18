@@ -4,7 +4,7 @@
 // Calenso eventName -> dataLayer event passthrough and only notifies n8n for
 // the browser-selected appointment UUID observed on APPOINTMENT_BOOKING_DONE.
 (function () {
-  var NOTIFY_ENDPOINT = "https://YOUR_PUBLIC_N8N_HOST/webhook/calenso-browser-selected-appointment";
+  var NOTIFY_ENDPOINT = "https://calenso-n8n-aws.tail713d2f.ts.net/webhook/calenso-browser-selected-appointment";
   var EXPECTED_CALENSO_ORIGIN = "https://widget.calenso.com";
   var MAX_NOTIFY_ATTEMPTS = 3;
   var RETRY_DELAYS_MS = [1000, 5000];
