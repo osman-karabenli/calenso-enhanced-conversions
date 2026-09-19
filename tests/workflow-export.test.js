@@ -42,6 +42,7 @@ assert.doesNotMatch(byName("Respond Browser State Decision").parameters.response
 assert.equal(byName("Claim Next Retryable Enhancement").parameters.url, "http://calenso-state-store:8787/next-retry");
 assert.equal(byName("Record Google Ads Upload Result").parameters.url, "http://calenso-state-store:8787/upload-result");
 assert.equal(byName("Poll Retryable Enhancements").type, "n8n-nodes-base.scheduleTrigger");
+assert.deepEqual(byName("Poll Retryable Enhancements").parameters.rule.interval, [{ field: "minutes", minutesInterval: 20 }]);
 
 assertConnected("Claim Authenticated Calenso Match", "Flatten State Store Decision");
 assertConnected("Claim Browser Selected Match", "Respond Browser State Decision");

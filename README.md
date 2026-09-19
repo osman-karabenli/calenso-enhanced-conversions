@@ -176,6 +176,7 @@ For a multi-date booking, Webador already chooses `bookingData[0].uuid` as the b
 - Pending buckets are capped at 500 records and accepted order ids at 5000 records. Accepted order ids are not silently removed on capacity pressure; storage pressure is reported as an error. Dead-letter records have their own retention and capacity limits.
 - HTTP 429/5xx, connection failures such as `ECONNRESET`, timeout/unknown results, empty 200 responses, and 200 responses without the expected `orderId` are retried by a scheduled workflow path without waiting for a new webhook. Only explicit validation 4xx responses and `partialFailureError` are permanent failures.
 - A scheduled retry also recovers persisted `IN_FLIGHT` records whose delivery claim is missing or expired. An active, unexpired claim is left untouched, and `maxUploadAttempts` still bounds recovery.
+- The generated `Poll Retryable Enhancements` schedule polls the state-store every 20 minutes.
 - HTTP `200` responses containing `partialFailureError` are treated as a non-accepted Google Ads result and are not marked as sent.
 - Empty or unexpected HTTP `200` responses are not accepted; the response must contain a result for the expected `orderId`.
 
@@ -198,6 +199,7 @@ The browser endpoint is intentionally secret-free and accepts only the appointme
 - `webador/browser-selected-appointment-listener.js`: integrated Webador-side draft listener that preserves Calenso `eventName` passthrough, attaches the selected UUID to the real `appointment_booking_step_success`, and sends only the selected UUID to the browser endpoint.
 - `scripts/build-browser-matched-workflow.js`: generates the n8n draft workflow export from the current production workflow plus state-store claim/finalize/retry paths.
 - `workflows/calenso-enhanced-conversions-pipeline.browser-matched.json`: inactive n8n draft workflow export.
+- `workflows/calenso-upload-context-isolated-test.json`: inactive, credential-free n8n 2.27.4 test workflow for validating upload context and Google Ads response assembly without HTTP or state-store calls.
 
 ### Webador Setup Draft
 
@@ -251,6 +253,7 @@ Missing live configuration that must be supplied explicitly:
 - CORS and gateway routing for the public browser endpoint, including a deployed rate-limit-capable gateway policy.
 - Live n8n execution with the imported draft workflow and the local `calenso-state-store` service.
 - Confirmation in n8n `2.27.4` that `Build Upload Result Record` can read `$('Attach Upload Context').first().json.upload_context` on both successful and `continueRegularOutput` Google Ads responses.
+- The isolated workflow follows `Manual Trigger -> Attach Upload Context -> Mock Google Ads Response -> Build Upload Result Record`; all test data is produced in Code nodes rather than pinned data.
 - Google Ads API behavior should be verified with test credentials or an isolated mock before any production credential is used. API acceptance is not the same thing as a reported/attributed conversion.
 
 ### Rollback
@@ -297,6 +300,7 @@ calenso-enhanced-conversions/
 |
 `-- workflows/
     |-- calenso-enhanced-conversions-pipeline.browser-matched.json
+    |-- calenso-upload-context-isolated-test.json
     |-- calenso-enhanced-conversions-pipeline.json
     `-- calenso-phone-enhancement-test.json
 ```
@@ -313,6 +317,7 @@ Important files:
 - `infra/caddy/Caddyfile.production-transition`: explicit rollback gateway config
 - `workflows/calenso-enhanced-conversions-pipeline.json`: production n8n workflow export
 - `workflows/calenso-enhanced-conversions-pipeline.browser-matched.json`: inactive state-store-backed draft workflow
+- `workflows/calenso-upload-context-isolated-test.json`: inactive isolated upload-context test workflow
 - `workflows/calenso-phone-enhancement-test.json`: isolated sanitized n8n regression workflow
 
 ## Environment Configuration

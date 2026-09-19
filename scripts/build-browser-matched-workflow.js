@@ -126,7 +126,7 @@ const nodes = [
       interval: [
         {
           field: "minutes",
-          minutesInterval: 1,
+          minutesInterval: 20,
         },
       ],
     },
