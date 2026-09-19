@@ -1,0 +1,86 @@
+{
+  "name": "Calenso Upload Context - Isolated Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "a4b7d8e1-5f32-4a91-9c20-01f4b2d7e6a8",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const appointmentUuid = '11111111-2222-4333-8444-555555555555';\nconst deliveryClaimId = 'test-claim-11111111-01';\nreturn [{\n  json: {\n    appointment_uuid: appointmentUuid,\n    order_id: appointmentUuid,\n    delivery_claim_id: deliveryClaimId,\n    delivery_attempt: 1,\n    upload_context: {\n      appointmentUuid,\n      deliveryClaimId,\n      deliveryAttempt: 1,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "b8c1d2e3-6f43-4a90-8b21-12e5c3d8f7a9",
+      "name": "Attach Upload Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "const orderId = $json.order_id;\nreturn [{\n  json: {\n    results: [{\n      orderId,\n      jobId: 'TEST_ONLY',\n    }],\n    jobId: 'TEST_ONLY',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "id": "c9d2e3f4-7a54-4b81-9c32-23f6d4e9a8b0",
+      "name": "Mock Google Ads Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst context = $('Attach Upload Context').first().json.upload_context;\nreturn [{\n  json: {\n    appointmentUuid: context.appointmentUuid,\n    deliveryClaimId: context.deliveryClaimId,\n    googleAdsResult: $json,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "id": "d0e3f4a5-8b65-4c72-ad43-34a7e5f0b9c1",
+      "name": "Build Upload Result Record"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Attach Upload Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Upload Context": {
+      "main": [
+        [
+          {
+            "node": "Mock Google Ads Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Google Ads Response": {
+      "main": [
+        [
+          {
+            "node": "Build Upload Result Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "tags": []
+}
