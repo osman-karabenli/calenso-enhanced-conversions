@@ -24,6 +24,7 @@ services:
     network_mode: "service:tailscale"
     depends_on:
       - tailscale
+      - calenso-state-store
     environment:
       - N8N_HOST=${N8N_HOST:-calenso-n8n.tail713d2f.ts.net}
       - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
@@ -36,6 +37,20 @@ services:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
 
+  calenso-state-store:
+    image: node:24-alpine
+    container_name: calenso-state-store
+    working_dir: /app
+    command: ["node", "services/state-store.js"]
+    environment:
+      - CALENSO_STATE_STORE_PORT=8787
+      - CALENSO_STATE_STORE_FILE=/data/calenso-enhancement-state.json
+    volumes:
+      - ./:/app:ro
+      - calenso_state:/data
+    restart: unless-stopped
+
 volumes:
   n8n_data:
   tailscale_state:
+  calenso_state:
