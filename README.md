@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository documents the live Google Ads Enhanced Conversions pipeline for Calenso bookings, implemented with n8n and Docker Compose. As of 19 September 2026, the browser-selected UUID matching system is running on AWS from branch `fix/browser-selected-appointment-matching` at commit `80e1c09`; it has not yet been merged into `main`.
+This repository documents a production-deployed Google Ads Enhanced Conversions pipeline for Calenso bookings, implemented with n8n and Docker Compose. As of 19 September 2026, the browser-selected UUID matching system is live on AWS, with active workflow `Calenso Browser UUID Matching - Production v2`. Commit `80e1c09` records the 20-minute retry polling change.
 
 The system receives customer-side Calenso booking events, validates and normalizes the required conversion data, hashes first-party customer identifiers, and uploads a Google Ads `ConversionAdjustment` with `adjustmentType = ENHANCEMENT`.
 
@@ -50,7 +50,7 @@ This avoids creating a second independent conversion and instead enhances the or
 - Google OAuth credential managed in n8n, outside Git
 - Secrets stored outside Git in ignored environment files
 
-No IP addresses, account IDs, production secrets, customer IDs, credential IDs, real emails, phone numbers, hashes, or sensitive identifiers are documented in this repository.
+No production secrets, access tokens, OAuth secrets, webhook secrets, real customer records, email addresses, phone numbers, or customer hashes are intentionally included. The exported workflow and Compose files do contain non-secret deployment metadata—such as Google Ads resource identifiers, an n8n credential reference, and a default Tailscale hostname—which cannot authorize access but should be replaced when reusing the project.
 
 ## Security Design
 
@@ -66,7 +66,9 @@ Caddy is the security boundary in front of n8n.
 - Google Ads receives SHA-256 hashed identifiers.
 - Phone is optional; missing or invalid phone falls back to email-only enhancement.
 
-This design prevents unauthenticated public webhook calls and avoids persisting the webhook secret in n8n execution data.
+This design prevents unauthenticated calls to the protected production webhook path and avoids persisting the webhook secret in n8n execution data.
+
+The strict Caddy rule covers the exact Calenso webhook path. Other routes are forwarded to n8n by the catch-all proxy, so editor access must be protected separately through n8n authentication and deployment or network controls.
 
 ## Data Flow / Processing
 
@@ -96,7 +98,7 @@ Google OAuth 2.0 credentials are managed in n8n and are not exported into Git.
 
 ## Production Live Verification
 
-The following live checks were verified on 19 September 2026 with sanitized evidence only:
+The AWS production deployment was operator acceptance-tested, and the following live checks were verified on 19 September 2026 with sanitized evidence only:
 
 - Browser-selected UUID matching is deployed on AWS.
 - The `calenso-state-store` Docker container is running.
@@ -348,6 +350,24 @@ Required deployment configuration includes:
 
 The Compose configuration is designed for staged deployments by allowing hostnames and public URLs to be supplied through environment variables.
 
+## Repository Evidence
+
+| Capability | Repository evidence | Verification limit |
+|---|---|---|
+| Secret-header validation and stripping at the webhook boundary | [`infra/caddy/Caddyfile.production`](infra/caddy/Caddyfile.production) | Protects the exact production webhook path; the secret value remains external |
+| Containerized n8n, Tailscale, and Caddy deployment | [`docker-compose.yml`](docker-compose.yml) and [`docker-compose.production-gateway.yml`](docker-compose.production-gateway.yml) | Deployment definitions are included; the live AWS environment is not publicly accessible |
+| Data minimization, validation, normalization, and SHA-256 hashing | [`workflows/calenso-enhanced-conversions-pipeline.json`](workflows/calenso-enhanced-conversions-pipeline.json) | Workflow implementation is public; real execution payloads are excluded |
+| Google Ads enhancement payload and API upload | [`workflows/calenso-enhanced-conversions-pipeline.json`](workflows/calenso-enhanced-conversions-pipeline.json) | Non-secret resource identifiers and a credential reference remain in the export; credentials and tokens are not included |
+| Sanitized phone-handling regression workflow | [`workflows/calenso-phone-enhancement-test.json`](workflows/calenso-phone-enhancement-test.json) | Test workflow is included; production customer data is not used |
+| Environment-based secret configuration | [`.env.example`](.env.example) | Placeholder values only; real secrets remain outside Git |
+
+## Verification Scope
+
+- The repository provides public source evidence for the workflow and deployment architecture.
+- Production acceptance results are operator-reported from sanitized checks; production logs, payloads, credentials, and Google Ads responses are intentionally excluded.
+- The live AWS, Calenso, n8n, Tailscale, and Google Ads environments cannot be independently reproduced from this repository without authorized credentials and deployment-specific configuration.
+- The separate `fix/pii-lifecycle` branch exists but is not presented as part of the verified production `main` state.
+
 ## Skills Demonstrated
 
 - n8n workflow automation
@@ -372,6 +392,6 @@ The Compose configuration is designed for staged deployments by allowing hostnam
 
 ## Status
 
-**Live on AWS as of 19 September 2026; not yet merged into `main`.**
+**Production deployed / operator acceptance-tested.**
 
-This repository is a portfolio-grade automation project demonstrating secure webhook ingestion, privacy-aware data processing, and Google Ads Enhanced Conversions integration.
+This repository is a portfolio project demonstrating authenticated webhook ingestion, privacy-aware data processing, and Google Ads Enhanced Conversions integration. Public evidence is limited to sanitized source artifacts and documented verification results.
